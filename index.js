@@ -114,7 +114,7 @@ app.post('/api/persons', (request, res) => {
     number: body.number
   }
 
-  persons.concat(newPerson)
+  persons.push(newPerson)
   res.status('201').json(newPerson)
 })
 
