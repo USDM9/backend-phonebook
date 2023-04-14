@@ -12,6 +12,19 @@ app.use(cors())
 
 // Page initial
 
+app.use(morgan(function (tokens, req, res) {
+  if (req.method === 'GET' || req.method === 'DELETE') {
+    return [
+      tokens.method(req, res), 'url:',
+      tokens.url(req, res), 'status:',
+      tokens.status(req, res), 'content-length:',
+      tokens.res(req, res, 'content-length'), '-',
+      tokens['response-time'](req, res), 'ms'
+
+    ].join(' ')
+  }
+}))
+
 app.get('/', (request, response) => {
   response.send('<h1>Wellcome to my api</h1>')
 })
