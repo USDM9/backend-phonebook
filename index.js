@@ -1,7 +1,8 @@
+require('dotenv').config()
 const express = require('express')
 const morgan = require('morgan')
 const cors = require('cors')
-const persons = require('./db')
+const People = require('./models/mongodb')
 
 const app = express()
 app.use(express.json())
@@ -33,8 +34,8 @@ app.get('/', (request, response) => {
 
 // Information of amount people step 1
 
-app.get('/info', (request, response) => {
-  const countPeople = persons.length
+app.get('/info', async (request, response) => {
+  const countPeople = await People.estimatedDocumentCount()
   const date = new Date()
 
   response.send(`
@@ -48,25 +49,48 @@ app.get('/info', (request, response) => {
 // Return all info of the people step 2
 
 app.get('/api/persons', (request, response) => {
-  response.json(persons)
+  People.find({}).then(person => {
+    if (person) {
+      console.log('geting all peoples')
+      response.json(person)
+    } else {
+      response.status(404).end()
+    }
+  }).catch(err => {
+    console.log('error in path to return info all people', err)
+  })
 })
 
 // Return 1 person by his id step 3
 
-app.get('/api/persons/:id', (request, response) => {
-  const id = Number(request.params.id)
-  const getPerson = persons.find(person => person.id === id)
-
-  !getPerson ? response.status('404').end() : response.json(getPerson)
+app.get('/api/persons/:id', (request, response, next) => {
+  People.findById(request.params.id).then(result => {
+    if (result) {
+      response.json(result)
+    } else {
+      response.status(404).end()
+    }
+  }).catch(err => {
+    console.log('error in path to return 1 people')
+    next(err)
+  })
 })
 
 // Deleting 1 person by his id step 4
 
 app.delete('/api/persons/:id', (request, response) => {
-  // const id = Number(request.params.id)
-  // const nPersons = persons.filter(p => p.id !== id)
-
-  response.status('204').end()
+  People.findByIdAndRemove(request.params.id)
+    .then(result => {
+      if (result) {
+        console.log('deleted', result)
+        response.status('204').end()
+      } else {
+        response.status(404).end()
+      }
+    })
+    .catch(err => {
+      console.log('not faund in db the element to delete', err)
+    })
 })
 
 // Add new person to persons step 5
@@ -80,43 +104,65 @@ app.use(morgan(function (tokens, req, res) {
       tokens.url(req, res),
       tokens.status(req, res),
       tokens.res(req, res, 'content-length'), '-',
-      tokens['response-time'](req, res), 'ms',
-      tokens.type(req, res)
+      tokens['response-time'](req, res), 'ms'
 
     ].join(' ')
   }
 }))
 
-function islastName (name, lastName) {
-  if (lastName) {
-    const temp = lastName.charAt(0).toUpperCase() + lastName.slice(1)
-    const fullName = `${name} ${temp}`
-    return fullName
-  } else {
-    return name
-  }
-}
+// create new person in db
 
-app.post('/api/persons', (request, res) => {
+app.post('/api/persons', (request, res, next) => {
   const body = request.body
-  const name = body.name.charAt(0).toUpperCase() + body.name.slice(1)
-  // Valindando datos step 6
 
-  if (!body.number) res.status('400').json({ error: 'must be sent a number' }).end()
+  const newPerson = new People({
+    name: body.name,
+    number: body.number,
+    date: Date()
+  })
 
-  if (!body.name) res.status(400).json({ error: 'must be sent a name' }).end()
+  newPerson.save().then(result => {
+    console.log('is save newPerson')
+    res.status('201').json(result)
+  }).catch(err => {
+    next(err)
+  })
+})
 
-  if (persons.find(p => p.name === body.name)) res.status('400').json({ error: 'name alredy exist, name must be unique' }).end()
+// update a people already exist in db
 
-  const newPerson = {
-    id: Math.floor(Math.random() * 1000),
-    name: islastName(name, body.lastName),
+app.put('/api/persons/:id', (req, res, next) => {
+  const body = req.body
+  const updatePerson = {
+    name: body.name,
     number: body.number
   }
 
-  persons.push(newPerson)
-  res.status('201').json(newPerson)
+  const opts = { runValidators: true, new: true }
+
+  People.findByIdAndUpdate(req.params.id, updatePerson, opts)
+    .then(result => {
+      if (result) {
+        res.json(result)
+      } else {
+        res.status(404).json({ error: 'the number you are trying to update not exixt in database' })
+      }
+    }).catch(error => next(error))
 })
+
+// errorHandler
+
+const errorHandler = (err, req, res, next) => {
+  console.log(err.message)
+  if (err.name === 'CastError') {
+    return res.status(400).send({ error: 'malformatted id' })
+  } else if (err.name === 'ValidationError') {
+    return res.status(400).json({ error: err.message })
+  }
+  next(err)
+}
+
+app.use(errorHandler)
 
 app.use(morgan(function (tokens, req, res) {
   return [
